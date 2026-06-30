@@ -8,6 +8,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import client from "../api/client";
 import StepItem from "../components/StepItem";
 import ReviewPlan from "../components/ReviewPlan";
+import { useAuth } from "../contexts/AuthContext";
 
 const STATUS_OPTIONS = [
   { value: "not_started", label: "Not Started" },
@@ -27,6 +28,7 @@ const TYPE_LABELS = {
 export default function TaskDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [task, setTask] = useState(null);
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,21 @@ export default function TaskDetailPage() {
   // AI-specific state
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
+
+  const handleSyncCalendar = async () => {
+    setSyncingCalendar(true);
+    try {
+      const res = await client.post(`/tasks/${id}/sync-calendar`);
+      setSteps(res.data.steps);
+      alert("Successfully synchronized schedule with Google Calendar!");
+    } catch (err) {
+      const msg = err.response?.data?.detail || "Failed to sync with Google Calendar.";
+      alert(msg);
+    } finally {
+      setSyncingCalendar(false);
+    }
+  };
 
   const fetchTask = useCallback(async () => {
     try {
@@ -285,7 +302,21 @@ export default function TaskDetailPage() {
                 </span>
               )}
             </h2>
-            <div style={{ display: "flex", gap: "10px" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              {user?.google_connected && (
+                <button
+                  onClick={handleSyncCalendar}
+                  disabled={syncingCalendar}
+                  className="calendar-sync-btn btn btn-sm bg-neutral-900 border border-neutral-700 text-neutral-300 hover:text-white"
+                  id="sync-calendar-btn"
+                >
+                  {syncingCalendar
+                    ? "⏳ Syncing..."
+                    : steps.some((s) => s.calendar_event_id)
+                    ? "✓ Calendar Synced"
+                    : "📅 Sync to Calendar"}
+                </button>
+              )}
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => setShowStepForm(!showStepForm)}

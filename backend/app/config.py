@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     ANTHROPIC_API_KEY: str = ""
     ALLOW_MOCK_FALLBACK: bool = True
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/google/callback"
+    FRONTEND_URL: str = "http://localhost:5173"
 
     @property
     def cors_origin_list(self) -> list[str]:

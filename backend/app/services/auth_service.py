@@ -42,9 +42,10 @@ def decode_access_token(token: str) -> int | None:
 
 def create_user(db: Session, data: SignupRequest) -> User:
     """Create a new user in the database."""
+    hashed_pwd = hash_password(data.password) if data.password else None
     user = User(
         email=data.email,
-        hashed_password=hash_password(data.password),
+        hashed_password=hashed_pwd,
         name=data.name,
     )
     db.add(user)
@@ -53,10 +54,74 @@ def create_user(db: Session, data: SignupRequest) -> User:
     return user
 
 
+def find_or_create_google_user(
+    db: Session,
+    google_id: str,
+    email: str,
+    name: str,
+    access_token: str,
+    refresh_token: str | None,
+) -> User:
+    """Find user by google_id, or match by email and link, or create a new user."""
+    # 1. Match by Google ID
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if user:
+        # Update access and refresh tokens
+        user.google_access_token = access_token
+        if refresh_token:
+            user.google_refresh_token = refresh_token
+        db.commit()
+        db.refresh(user)
+        return user
+
+    # 2. Match by email
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        user.google_id = google_id
+        user.google_access_token = access_token
+        if refresh_token:
+            user.google_refresh_token = refresh_token
+        db.commit()
+        db.refresh(user)
+        return user
+
+    # 3. Create brand new user
+    user = User(
+        email=email,
+        hashed_password=None,  # Google-only user, no standard password
+        name=name,
+        google_id=google_id,
+        google_access_token=access_token,
+        google_refresh_token=refresh_token,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def link_google_account(
+    db: Session,
+    user: User,
+    google_id: str,
+    access_token: str,
+    refresh_token: str | None,
+) -> User:
+    """Link Google OAuth columns to an existing authenticated User."""
+    user.google_id = google_id
+    user.google_access_token = access_token
+    if refresh_token:
+        user.google_refresh_token = refresh_token
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
     """Validate credentials and return the user, or None."""
     user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(password, user.hashed_password):
+    # Google-only users won't have a hashed_password
+    if not user or not user.hashed_password or not verify_password(password, user.hashed_password):
         return None
     return user
 
@@ -64,3 +129,4 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
 def get_user_by_id(db: Session, user_id: int) -> User | None:
     """Fetch a user by primary key."""
     return db.query(User).filter(User.id == user_id).first()
+

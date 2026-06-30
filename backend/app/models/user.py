@@ -12,8 +12,14 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Nullable for Google-only users
     name = Column(String(255), nullable=False)
+    
+    # Google OAuth fields (In prod, these should be encrypted/stored in a proper vault)
+    google_id = Column(String(255), unique=True, index=True, nullable=True)
+    google_access_token = Column(String(2048), nullable=True)
+    google_refresh_token = Column(String(2048), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

@@ -36,6 +36,16 @@ def setup_database():
 
 
 @pytest.fixture()
+def db():
+    """Provide a database session directly to tests."""
+    database = TestingSessionLocal()
+    try:
+        yield database
+    finally:
+        database.close()
+
+
+@pytest.fixture()
 def client():
     """Provide a test client with the DB dependency overridden."""
     app.dependency_overrides[get_db] = override_get_db

@@ -48,13 +48,20 @@ export function AuthProvider({ children }) {
     return me.data;
   }, []);
 
+  const loginWithToken = useCallback(async (token) => {
+    setAccessToken(token);
+    const me = await client.get("/auth/me");
+    setUser(me.data);
+    return me.data;
+  }, []);
+
   const logout = useCallback(() => {
     clearAccessToken();
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signup, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, signup, login, loginWithToken, logout }}>
       {children}
     </AuthContext.Provider>
   );

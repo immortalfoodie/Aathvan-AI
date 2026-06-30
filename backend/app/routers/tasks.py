@@ -25,6 +25,7 @@ from app.services.task_service import (
 )
 from app.services.ai_service import generate_task_plan, AIServiceException
 from app.services.scheduler import distribute_steps_across_days
+from app.services.calendar_sync import sync_task_to_calendar
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -209,4 +210,38 @@ def approve_plan(
     approved_steps.sort(key=lambda s: s.order_index)
 
     return ApprovePlanResponse(task=task, steps=approved_steps)
+
+
+@router.post("/{task_id}/sync-calendar", response_model=ApprovePlanResponse)
+def sync_calendar(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Sync an approved task plan to the user's Google Calendar."""
+    if not current_user.google_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google account not connected. Please link Google first.",
+        )
+
+    task = get_task(db, task_id, current_user.id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    if task.ai_plan_status != AIPlanStatus.approved:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task plan must be approved before calendar sync.",
+        )
+
+    # Sync steps to calendar
+    synced_steps = sync_task_to_calendar(current_user, task, task.steps, db)
+    synced_steps.sort(key=lambda s: s.order_index)
+
+    return ApprovePlanResponse(task=task, steps=synced_steps)
+
 

@@ -36,6 +36,7 @@ class TaskStep(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)  # Auto-set when status → done
     # Data capture only in Step 3 — estimation-learning logic will use this in a future step
     actual_hours_spent = Column(Float, nullable=True)
+    calendar_event_id = Column(String(255), nullable=True)  # Synced Google Calendar event ID
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),

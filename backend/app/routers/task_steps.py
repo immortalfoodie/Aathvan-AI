@@ -22,6 +22,7 @@ from app.services.task_service import (
 )
 from app.services.scheduler import distribute_steps_across_days
 from app.services.prioritizer import get_remaining_hours, compute_days_until_due, is_task_at_risk
+from app.services.calendar_sync import update_calendar_events_on_replan
 
 router = APIRouter(tags=["steps"])
 
@@ -123,8 +124,11 @@ def update_task_step(
         ]
         # Apply new scheduled dates — done/skipped steps keep their historical dates
         distribute_steps_across_days(remaining_steps, task.due_date)
-
-    db.commit()
+        db.commit()
+        # Update calendar events if synced
+        update_calendar_events_on_replan(current_user, task, all_steps, db)
+    else:
+        db.commit()
 
     # Refresh all steps to get updated values
     for s in all_steps:
