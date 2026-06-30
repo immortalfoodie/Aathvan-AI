@@ -10,6 +10,9 @@ import TaskCard from "../components/TaskCard";
 import NewTaskModal from "../components/NewTaskModal";
 import TodayPriorityList from "../components/TodayPriorityList";
 import OverviewWidget from "../components/OverviewWidget";
+import MomentumWidget from "../components/MomentumWidget";
+import VoiceCheckIn from "../components/VoiceCheckIn";
+import InactionSimulationModal from "../components/InactionSimulationModal";
 
 export default function DashboardPage() {
   const [tasks, setTasks] = useState([]);
@@ -67,11 +70,18 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="dashboard-sections">
+          
+          <MomentumWidget />
+          <VoiceCheckIn onChangesApplied={fetchAll} />
+
           {/* Section 1: Today's Priorities */}
           {hasPriorities && (
             <section className="today-section" id="today-section">
               <h2 className="section-title">🎯 Today — What to Work on Next</h2>
               <TodayPriorityList items={priorities} onUpdate={fetchAll} />
+              <div className="text-center mt-2">
+                <InactionSimulationModal />
+              </div>
             </section>
           )}
 

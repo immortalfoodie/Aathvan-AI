@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.models.task import AIPlanStatus
+from app.models.task import AIPlanStatus, TaskStatus
 from app.models.task_step import TaskStep, StepStatus
 from app.schemas.task import (
     TaskCreate,
@@ -26,6 +26,7 @@ from app.services.task_service import (
 from app.services.ai_service import generate_task_plan, AIServiceException
 from app.services.scheduler import distribute_steps_across_days
 from app.services.calendar_sync import sync_task_to_calendar
+from app.services.estimation_learner import get_adjustment_factor, update_estimation_profile, get_task_autopsy, AutopsyResult
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -79,7 +80,13 @@ def update_task_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
-    return update_task(db, task, data)
+    old_status = task.status
+    updated_task = update_task(db, task, data)
+    
+    if data.status and old_status != TaskStatus.completed and updated_task.status == TaskStatus.completed:
+        update_estimation_profile(db, updated_task)
+        
+    return updated_task
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -116,12 +123,16 @@ async def generate_plan(
     db.query(TaskStep).filter(TaskStep.task_id == task_id).delete()
 
     try:
+        # Fetch the user's adjustment factor for this task type
+        adjustment_factor = get_adjustment_factor(db, current_user.id, task.task_type)
+
         # Call AI service (async)
         ai_result = await generate_task_plan(
             title=task.title,
             raw_description=task.raw_description,
             task_type=task.task_type.value,
             due_date=task.due_date,
+            adjustment_factor=adjustment_factor,
         )
     except AIServiceException as e:
         # Return 502 Bad Gateway with details for the frontend
@@ -243,5 +254,21 @@ def sync_calendar(
     synced_steps.sort(key=lambda s: s.order_index)
 
     return ApprovePlanResponse(task=task, steps=synced_steps)
+
+
+@router.get("/{task_id}/autopsy", response_model=AutopsyResult)
+def get_autopsy_for_task(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the deadline autopsy details for a completed task."""
+    result = get_task_autopsy(db, task_id, current_user.id)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Autopsy not available. Task may not exist, may not be completed, or lacked hours data.",
+        )
+    return result
 
 

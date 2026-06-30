@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, tasks, task_steps, priority, google_auth, classroom, notifications
+from app.routers import auth, tasks, task_steps, priority, google_auth, classroom, notifications, engagement
 from app.db.session import SessionLocal
 from app.services.notifier import run_daily_notifications
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -32,6 +32,7 @@ app.include_router(priority.router)
 app.include_router(google_auth.router)
 app.include_router(classroom.router)
 app.include_router(notifications.router)
+app.include_router(engagement.router)
 
 
 # Background Scheduler for Daily Notifications

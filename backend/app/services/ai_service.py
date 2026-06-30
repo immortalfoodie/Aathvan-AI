@@ -1,27 +1,28 @@
-"""AI service for task decomposition using the Anthropic API."""
+"""AI service for task decomposition using the Google Gemini API."""
 
-import json
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
-from pydantic import BaseModel
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
-import anthropic
+from google import genai
+from google.genai import types
+
 from app.config import settings
 
 # ── Structured output types ───────────────────────────────────────────
 
 class AIDecomposedStep(BaseModel):
-    title: str
-    description: str
-    estimated_hours: float
-    suggested_order: int
+    title: str = Field(description="Short, active-verb title of the step (e.g., 'Draft thesis statement').")
+    description: str = Field(description="Specific, actionable detail explaining exactly what to do.")
+    estimated_hours: float = Field(description="Realistic hours required (can be decimals, e.g. 1.5).")
+    suggested_order: int = Field(description="The 0-based sequential order of this step.")
 
 
 class AIDecompositionResult(BaseModel):
-    task_summary: str
-    steps: List[AIDecomposedStep]
-    total_estimated_hours: float
-    confidence_note: str
+    task_summary: str = Field(description="A 1-2 sentence empathetic summary of what the task requires.")
+    steps: list[AIDecomposedStep] = Field(description="The sequential list of concrete steps needed to complete the task.")
+    total_estimated_hours: float = Field(description="The sum of all steps' estimated hours.")
+    confidence_note: str = Field(description="Mentorship advice, context alerts, or confidence caveats if description is sparse.")
 
 
 # ── System prompt for experienced mentor/TA behavior ───────────────────
@@ -44,57 +45,6 @@ You must follow these rules strictly:
 6. Provide a 'confidence_note' with warnings, caveats, or suggestions (e.g., "This estimate assumes you are familiar with SQL; if not, add 2 hours for basic tutorials.").
 """
 
-# Tool definition forcing structured output
-DECOMPOSE_TOOL = {
-    "name": "create_task_decomposition",
-    "description": "Output the structured decomposition of the user's task.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "task_summary": {
-                "type": "string",
-                "description": "A 1-2 sentence empathetic summary of what the task requires."
-            },
-            "steps": {
-                "type": "array",
-                "description": "The sequential list of concrete steps needed to complete the task.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "title": {
-                            "type": "string",
-                            "description": "Short, active-verb title of the step (e.g., 'Draft thesis statement')."
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Specific, actionable detail explaining exactly what to do."
-                        },
-                        "estimated_hours": {
-                            "type": "number",
-                            "description": "Realistic hours required (can be decimals, e.g. 1.5)."
-                        },
-                        "suggested_order": {
-                            "type": "integer",
-                            "description": "The 0-based sequential order of this step."
-                        }
-                    },
-                    "required": ["title", "description", "estimated_hours", "suggested_order"]
-                }
-            },
-            "total_estimated_hours": {
-                "type": "number",
-                "description": "The sum of all steps' estimated hours."
-            },
-            "confidence_note": {
-                "type": "string",
-                "description": "Mentorship advice, context alerts, or confidence caveats if description is sparse."
-            }
-        },
-        "required": ["task_summary", "steps", "total_estimated_hours", "confidence_note"]
-    }
-}
-
-
 class AIServiceException(Exception):
     """Custom exception raised when plan generation fails."""
     pass
@@ -105,14 +55,15 @@ async def generate_task_plan(
     raw_description: Optional[str],
     task_type: str,
     due_date: Optional[datetime],
+    adjustment_factor: float = 1.0,
 ) -> AIDecompositionResult:
-    """Call the Anthropic API to decompose a task.
+    """Call the Gemini API to decompose a task.
 
     Raises AIServiceException on API errors, rate limits, timeouts, or parsing errors.
     """
-    if not settings.ANTHROPIC_API_KEY:
+    if not settings.GEMINI_API_KEY:
         if not settings.ALLOW_MOCK_FALLBACK:
-            raise AIServiceException("Anthropic API key is not configured.")
+            raise AIServiceException("Gemini API key is not configured.")
         # Fallback mock decomposition for local development/testing without API key
         return AIDecompositionResult(
             task_summary=f"Decomposed plan for: '{title}'.",
@@ -137,10 +88,10 @@ async def generate_task_plan(
                 ),
             ],
             total_estimated_hours=8.0,
-            confidence_note="Note: This is a fallback mock plan generated locally because ANTHROPIC_API_KEY is not configured.",
+            confidence_note="Note: This is a fallback mock plan generated locally because GEMINI_API_KEY is not configured.",
         )
 
-    # Format context for Claude
+    # Format context
     due_date_str = due_date.strftime("%Y-%m-%d %H:%M:%S") if due_date else "Not specified"
     current_time_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -154,38 +105,41 @@ Description: {raw_description or "(No description provided)"}
 Please decompose this task into a sequential plan of actionable steps."""
 
     try:
-        # Create async client
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        # Initialize Gemini Client
+        # The SDK automatically uses synchronous requests under the hood, but can be awaited if wrapped or run async.
+        # Since the Google GenAI SDK's `client.models.generate_content_async` is available, we use that.
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-        # Call Claude with tool choice forced
-        response = await client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=4000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-            tools=[DECOMPOSE_TOOL],
-            tool_choice={"type": "tool", "name": "create_task_decomposition"},
-            timeout=30.0,
+        response = await client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=user_message,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_schema=AIDecompositionResult,
+                temperature=0.2,
+            ),
         )
 
-        # Extract tool use block
-        tool_use = None
-        for block in response.content:
-            if block.type == "tool_use" and block.name == "create_task_decomposition":
-                tool_use = block
-                break
+        if not response.parsed:
+            raise AIServiceException("Model failed to return structured data.")
 
-        if not tool_use:
-            raise AIServiceException("Model failed to invoke the task decomposition tool.")
+        result = response.parsed
 
-        input_data = tool_use.input
-        return AIDecompositionResult(**input_data)
+        # Apply the user's learned estimation adjustment factor
+        if adjustment_factor != 1.0:
+            for step in result.steps:
+                # Multiply the estimate by the user's learned factor and round to nearest 0.25 for neatness
+                adjusted = step.estimated_hours * adjustment_factor
+                step.estimated_hours = round(adjusted * 4) / 4
+            
+            # Recalculate total
+            result.total_estimated_hours = sum(s.estimated_hours for s in result.steps)
+            
+            # Append a note that the estimates were personalized
+            result.confidence_note += f"\n\n[Personalized]: Estimates have been adjusted by a factor of {adjustment_factor:.2f}x based on your past completion times for {task_type} tasks."
 
-    except anthropic.APITimeoutError:
-        raise AIServiceException("Request to Anthropic API timed out. Please try again.")
-    except anthropic.RateLimitError:
-        raise AIServiceException("Anthropic API rate limit exceeded. Please try again in a few moments.")
-    except anthropic.APIStatusError as e:
-        raise AIServiceException(f"Anthropic API returned status code {e.status_code}: {e.message}")
+        return result
+
     except Exception as e:
         raise AIServiceException(f"An unexpected error occurred during AI plan generation: {str(e)}")

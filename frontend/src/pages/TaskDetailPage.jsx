@@ -8,6 +8,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import client from "../api/client";
 import StepItem from "../components/StepItem";
 import ReviewPlan from "../components/ReviewPlan";
+import TaskAutopsy from "../components/TaskAutopsy";
 import { useAuth } from "../contexts/AuthContext";
 
 const STATUS_OPTIONS = [
@@ -237,6 +238,10 @@ export default function TaskDetailPage() {
             <h3>Description</h3>
             <p>{task.raw_description}</p>
           </div>
+        )}
+        
+        {task.status === "completed" && (
+          <TaskAutopsy taskId={task.id} />
         )}
       </div>
 
